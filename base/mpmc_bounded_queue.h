@@ -49,7 +49,7 @@ template <typename T> class mpmc_bounded_queue {
       throw std::runtime_error("async logger queue size must be power of two");
 
     for (size_t i = 0; i != buffer_size; i += 1)
-      buffer_[i].sequence.store(i, std::memory_order_relaxed);
+      buffer_[i].sequence.store(i, std::memory_order_relaxed);  // 初始化seq和index一致
 
     enqueue_pos_.store(0, std::memory_order_relaxed);
     dequeue_pos_.store(0, std::memory_order_relaxed);
@@ -72,7 +72,7 @@ template <typename T> class mpmc_bounded_queue {
   }
 
   bool is_full() const {
-    size_t pos = enqueue_pos_.load(std::memory_order_relaxed);
+    size_t pos = enqueue_pos_.load(std::memory_order_relaxed);  // 插入的位置
     cell_t& cell = buffer_[pos & buffer_mask_];
     intptr_t seq = cell.sequence.load(std::memory_order_relaxed);
     intptr_t dif = seq - intptr_t(pos);
@@ -89,11 +89,11 @@ template <typename T> class mpmc_bounded_queue {
     cell_t* cell;
 
     while (true) {
-      pos = enqueue_pos_.load(std::memory_order_relaxed);
+      pos = enqueue_pos_.load(std::memory_order_relaxed);  // 插入位置
       cell = &buffer_[pos & buffer_mask_];
       size_t seq = cell->sequence.load(std::memory_order_acquire);
       intptr_t dif = intptr_t(seq) - intptr_t(pos);
-      if (dif == 0) {  // available cell.
+      if (dif == 0) {  // available cell. seq==pos 插入成功,pos自增，seq自增
         // advance enque index.
         if (enqueue_pos_.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed))
           break;
@@ -103,7 +103,7 @@ template <typename T> class mpmc_bounded_queue {
     }
 
     new (&cell->storage) T(std::forward<U>(data));
-    cell->sequence.store(pos + 1, std::memory_order_release);
+    cell->sequence.store(pos + 1, std::memory_order_release);  // 修改seq + 1
     return true;
   }
 
@@ -115,9 +115,9 @@ template <typename T> class mpmc_bounded_queue {
       pos = dequeue_pos_.load(std::memory_order_relaxed);
       cell = &buffer_[pos & buffer_mask_];
       size_t seq = cell->sequence.load(std::memory_order_acquire);
-      intptr_t dif = (intptr_t)seq - (intptr_t)(pos + 1);
+      intptr_t dif = (intptr_t)seq - (intptr_t)(pos + 1);  // 插入后seq自增,pos小1
       if (dif == 0) {
-        if (dequeue_pos_.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed))
+        if (dequeue_pos_.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed)) // pos+1 自增
           break;
       } else if (dif < 0) {
         return false;  // the queue is empty.
@@ -129,7 +129,7 @@ template <typename T> class mpmc_bounded_queue {
     src.~T();
 
     // Commit transaction, free up the cell.
-    cell->sequence.store(pos + buffer_mask_ + 1, std::memory_order_release);
+    cell->sequence.store(pos + buffer_mask_ + 1, std::memory_order_release);  // seq+size下一个轮回
     return true;
   }
 
@@ -152,7 +152,7 @@ template <typename T> class mpmc_bounded_queue {
  private:
   struct cell_t {
     std::atomic<size_t> sequence;
-    alignas(T) char storage[sizeof(T)];
+    alignas(T) char storage[sizeof(T)];  // t类型的大小
   };
 
   typedef char cacheline_pad_t[64];
