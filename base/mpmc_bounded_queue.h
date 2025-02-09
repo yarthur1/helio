@@ -103,7 +103,7 @@ template <typename T> class mpmc_bounded_queue {
     }
 
     new (&cell->storage) T(std::forward<U>(data));
-    cell->sequence.store(pos + 1, std::memory_order_release);  // 修改seq + 1
+    cell->sequence.store(pos + 1, std::memory_order_release);  // 修改seq + 1  入队的pos
     return true;
   }
 
@@ -117,7 +117,7 @@ template <typename T> class mpmc_bounded_queue {
       size_t seq = cell->sequence.load(std::memory_order_acquire);
       intptr_t dif = (intptr_t)seq - (intptr_t)(pos + 1);  // 插入后seq自增,pos小1
       if (dif == 0) {
-        if (dequeue_pos_.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed)) // pos+1 自增
+        if (dequeue_pos_.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed)) // 出队pos+1 自增
           break;
       } else if (dif < 0) {
         return false;  // the queue is empty.
@@ -125,11 +125,11 @@ template <typename T> class mpmc_bounded_queue {
     }
 
     T& src = reinterpret_cast<T&>(cell->storage);
-    data = std::forward<T>(src);
-    src.~T();
+    data = std::forward<T>(src);  // 调用移动或者拷贝构造
+    src.~T();  // 愿对象析构
 
     // Commit transaction, free up the cell.
-    cell->sequence.store(pos + buffer_mask_ + 1, std::memory_order_release);  // seq+size下一个轮回
+    cell->sequence.store(pos + buffer_mask_ + 1, std::memory_order_release);  // seq+size下一个轮回  出队pos
     return true;
   }
 
@@ -151,7 +151,7 @@ template <typename T> class mpmc_bounded_queue {
 
  private:
   struct cell_t {
-    std::atomic<size_t> sequence;
+    std::atomic<size_t> sequence;  // 每个元素一个seq
     alignas(T) char storage[sizeof(T)];  // t类型的大小
   };
 
